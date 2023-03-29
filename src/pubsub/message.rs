@@ -6,6 +6,9 @@ pub enum PubSubRequest {
     Subscribe {
         topics: Vec<String>,
     },
+    Unsubscribe {
+        topics: Vec<String>,
+    },
     Publish {
         topics: Vec<String>,
         message: String,

@@ -8,22 +8,27 @@ use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures::stream::SplitStream;
 use futures::{sink::SinkExt, stream::StreamExt};
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinSet;
 
 use super::message::PubSubRequest;
 use super::process_subscription_message;
 use super::subscriber::subscribe;
 
+#[derive(Debug)]
 pub struct PubSubState {
     // maps topic to a broadcast channel
-    pub tx: HashMap<String, broadcast::Sender<String>>,
+    pub topics: Mutex<HashMap<String, broadcast::Sender<String>>>,
+    // maps receiver to a subscription routine
+    pub subscriptions: Mutex<HashMap<(SocketAddr, String), tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for PubSubState {
     fn default() -> Self {
-        Self { tx: HashMap::new() }
+        Self {
+            topics: Mutex::new(HashMap::new()),
+            subscriptions: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -84,25 +89,12 @@ async fn listen_for_messages(
     socket_address: SocketAddr,
     recv_task_sender: mpsc::Sender<String>,
 ) {
-    let mut join_set = JoinSet::new();
-
     while let Some(Ok(Message::Text(text))) = stream.next().await {
         match process_subscription_message(text) {
             Ok(result) => {
                 tracing::info!("received message from {}: {:?}", socket_address, result);
 
-                // remove old subscriptions
-                join_set.abort_all();
-
-                // create new subscriptions
-                join_set =
-                    match create_subscriptions(result, state_clone.clone(), sender.clone()).await {
-                        Ok(join_set) => join_set,
-                        Err(e) => {
-                            tracing::trace!("error creating subscriptions: {}", e);
-                            break;
-                        }
-                    }
+                handle_message(result, state_clone.clone(), sender.clone(), socket_address).await;
             }
             Err(e) => {
                 tracing::trace!("error parsing message from {}: {}", socket_address, e);
@@ -117,44 +109,79 @@ async fn listen_for_messages(
 }
 
 /// Creates a new subscription for each topic in the request or publishes a message to each topic.
-async fn create_subscriptions(
+async fn handle_message(
     result: PubSubRequest,
     state: Arc<PubSubState>,
     sender: mpsc::Sender<String>,
-) -> Result<JoinSet<()>, SendError<String>> {
-    let mut join_set = JoinSet::new();
+    socket_address: SocketAddr,
+) {
     let sender = sender.clone();
 
     match result {
         PubSubRequest::Subscribe { topics } => {
             for topic in topics {
-                let receiver = get_or_create_topic_channel(&mut state.clone(), topic.clone());
+                let receiver = get_or_create_topic_channel(&mut state.clone(), topic.clone()).await;
 
-                tracing::info!("subscribing to {}", topic);
-                join_set.spawn(subscribe(receiver, sender.clone()));
+                tracing::info!("subscribing {} to {}", socket_address, topic);
+                let routine = tokio::spawn(subscribe(receiver, sender.clone()));
+                state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .insert((socket_address, topic), routine);
+            }
+        }
+        PubSubRequest::Unsubscribe { topics } => {
+            for topic in topics {
+                tracing::info!("unsubscribing {} from {}", socket_address, topic);
+                if let Some(routine) = state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .remove(&(socket_address, topic.clone()))
+                {
+                    routine.abort();
+                }
+
+                if state.subscriptions.lock().await.is_empty() {
+                    tracing::trace!("deleting {} since there are no more subscribers", &topic);
+                    state.topics.lock().await.remove(&topic);
+                }
             }
         }
         PubSubRequest::Publish { topics, message } => {
             for topic in topics {
-                tracing::info!("publishing to {}: {}", topic, message);
-                sender.send(message.clone()).await?;
+                match state.topics.lock().await.get(&topic) {
+                    Some(transceiver) => {
+                        tracing::info!("publishing to {}: {}", topic, message);
+
+                        if transceiver.send(message.clone()).is_err() {
+                            tracing::trace!("error sending message to {}", topic);
+                        }
+                    }
+                    None => {
+                        tracing::trace!("topic {} does not have any subscribers", topic);
+                    }
+                };
             }
         }
     }
-
-    Ok(join_set)
 }
 
 /// Returns a broadcast channel for the given topic. If the topic does not exist, it will be created.
-fn get_or_create_topic_channel(
+async fn get_or_create_topic_channel(
     state: &mut Arc<PubSubState>,
     topic: String,
 ) -> broadcast::Receiver<String> {
-    match state.tx.get(&topic) {
+    let mut lock = state.topics.lock().await;
+
+    match lock.get(&topic) {
         Some(tx) => tx.subscribe(),
         None => {
+            tracing::trace!("creating new topic {}", topic);
+
             let (tx, _rx) = broadcast::channel(1000);
-            state.tx.clone().insert(topic, tx.clone());
+            lock.insert(topic, tx.clone());
             tx.subscribe()
         }
     }
