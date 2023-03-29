@@ -1,6 +1,14 @@
-# Stetson
+<h1 align="center">
+Stetson
+</h1>
 
-Stetson is a pure rust pubsub server. It uses HTTP and websockets to bring high speed subscriptions. Use it vanilla or fork it and make your own modifications.
+<p align="center">
+Stetson is a pure rust pubsub server over HTTP websockets.
+</p>
+
+<p align="center">
+Use it vanilla or fork it and make your own modifications.
+</p>
 
 ## Usage
 
@@ -40,4 +48,18 @@ cat .env
 
 ```json
 { "publish": { "topics": [""], "message": "hey", "key": "..." } }
+```
+
+### Responses
+
+`message` - received when a new message from a subscribed topic is received
+
+```bash
+{ "message": {"topic": "weather", "message": "storms ahead"} }
+```
+
+`error` - received when there was en error publishing a message
+
+```bash
+{ "error": {"message": "some error message here"} }
 ```
