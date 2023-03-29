@@ -47,7 +47,7 @@ cat .env
 `publish`
 
 ```json
-{ "publish": { "topics": [""], "message": "hey", "key": "..." } }
+{ "publish": { "topics": ["weather"], "message": "storms ahead", "key": "..." } }
 ```
 
 ### Responses
