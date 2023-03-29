@@ -14,6 +14,7 @@ use crate::pubsub::{websocket_handler, PubSubState};
 
 #[tokio::main]
 async fn main() {
+    // load environment variables from .env file
     dotenv().ok();
 
     // suppress panic messages
@@ -25,13 +26,19 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "stetson=trace,tower_http=debug".into()),
+                .unwrap_or("stetson=trace,tower_http=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // load publish key or warn use if it's not set
+    let publish_key: Option<String> = env::var("PUBLISH_KEY").ok();
+    if publish_key.is_none() {
+        tracing::warn!("PUBLISH_KEY environment variable not set. Any client can publish messages to the server.");
+    }
+
     // create global state for web server
-    let state = Arc::new(PubSubState::default());
+    let state = Arc::new(PubSubState::default().with_publisher_key(publish_key));
 
     // define application routes
     let app = Router::new()
@@ -58,11 +65,19 @@ async fn main() {
             .unwrap_or(([0, 0, 0, 0], port).into());
         tracing::info!("listening on {}", addr);
 
-        if let Err(axum_error) = axum::Server::bind(&addr)
-            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-        {
-            tracing::error!("web server shut down: {}", axum_error);
+        match axum::Server::try_bind(&addr) {
+            Ok(server) => {
+                tracing::info!("web server started");
+                if let Err(axum_error) = server
+                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
+                {
+                    tracing::error!("web server shut down: {}", axum_error);
+                }
+            }
+            Err(e) => {
+                tracing::error!("web server failed to start: {}", e);
+            }
         }
     });
 
@@ -74,5 +89,5 @@ async fn main() {
         }
     }
 
-    tracing::info!("server shutting down after all tasks finished");
+    tracing::error!("server shutting down unexpectedly");
 }

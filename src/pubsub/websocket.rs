@@ -11,12 +11,15 @@ use futures::{sink::SinkExt, stream::StreamExt};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinSet;
 
+use crate::pubsub::message::{send_error, send_message};
+
 use super::message::PubSubRequest;
 use super::process_subscription_message;
 use super::subscriber::subscribe;
 
 #[derive(Debug)]
 pub struct PubSubState {
+    publisher_key: Option<String>,
     // maps topic to a broadcast channel
     pub topics: Mutex<HashMap<String, broadcast::Sender<String>>>,
     // maps receiver to a subscription routine
@@ -26,8 +29,18 @@ pub struct PubSubState {
 impl Default for PubSubState {
     fn default() -> Self {
         Self {
+            publisher_key: None,
             topics: Mutex::new(HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl PubSubState {
+    pub fn with_publisher_key(self, publisher_key: Option<String>) -> Self {
+        Self {
+            publisher_key,
+            ..Default::default()
         }
     }
 }
@@ -100,7 +113,10 @@ async fn listen_for_messages(
                 tracing::trace!("error parsing message from {}: {}", socket_address, e);
 
                 // close connection if we can't send error to client
-                if recv_task_sender.send(e.to_string()).await.is_err() {
+                if send_error(e.to_string(), recv_task_sender.clone())
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -149,13 +165,25 @@ async fn handle_message(
                 }
             }
         }
-        PubSubRequest::Publish { topics, message } => {
+        PubSubRequest::Publish {
+            topics,
+            message,
+            key,
+        } => {
+            if key != state.publisher_key {
+                tracing::trace!("invalid publisher key");
+                if send_error("invalid publisher key", sender).await.is_err() {
+                    tracing::trace!("error sending error message to {}", socket_address);
+                }
+                return;
+            }
+
             for topic in topics {
                 match state.topics.lock().await.get(&topic) {
                     Some(transceiver) => {
                         tracing::info!("publishing to {}: {}", topic, message);
 
-                        if transceiver.send(message.clone()).is_err() {
+                        if send_message(&topic, &message, transceiver).is_err() {
                             tracing::trace!("error sending message to {}", topic);
                         }
                     }
