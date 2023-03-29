@@ -1,14 +1,24 @@
 <h1 align="center">
-Stetson
+  Stetson
 </h1>
 
 <p align="center">
-Stetson is a pure rust pubsub server over HTTP websockets.
+  Stetson is a pure rust pubsub server over HTTP websockets.
 </p>
 
 <p align="center">
-Use it vanilla or fork it and make your own modifications.
+  Use it vanilla or fork it and make your own modifications.
 </p>
+
+<div align="center">
+  <a href="https://crates.io/crates/stetson">
+    <image src="https://img.shields.io/crates/v/stetson.svg" alt="Crates.io" />
+  </a>
+  <a href="https://docs.rs/stetson/">
+    <image src="https://docs.rs/stetson/badge.svg" alt="Documentation" />
+  </a>
+</div>
+
 
 ## Usage
 
@@ -63,3 +73,12 @@ cat .env
 ```bash
 { "error": {"message": "some error message here"} }
 ```
+
+## License
+
+Licensed under either of
+
+ * Apache License, Version 2.0
+   ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license
+   ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
