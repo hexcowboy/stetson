@@ -64,14 +64,14 @@ cat .env
 
 `message` - received when a new message from a subscribed topic is received
 
-```bash
-{ "message": {"topic": "weather", "message": "storms ahead"} }
+```json
+{ "message": { "topic": "weather", "message": "storms ahead" } }
 ```
 
 `error` - received when there was en error publishing a message
 
-```bash
-{ "error": {"message": "some error message here"} }
+```json
+{ "error": { "message": "some error message here" } }
 ```
 
 ## License
