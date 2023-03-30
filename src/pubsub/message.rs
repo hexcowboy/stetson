@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tokio::sync::{
-    broadcast,
-    mpsc::{self, error::SendError},
-};
+use tokio::sync::{broadcast, mpsc};
 
 #[derive(PartialEq, Eq, Hash, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]

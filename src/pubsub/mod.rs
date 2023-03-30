@@ -1,6 +1,6 @@
 pub mod message;
-pub mod websocket;
 pub mod subscriber;
+pub mod websocket;
 
 use message::*;
 
