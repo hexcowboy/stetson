@@ -22,8 +22,8 @@ pub struct PubSubState {
     publisher_key: Option<String>,
     // maps topic to a broadcast channel
     pub topics: Mutex<HashMap<String, broadcast::Sender<String>>>,
-    // maps receiver to a subscription routine
-    pub subscriptions: Mutex<HashMap<(SocketAddr, String), tokio::task::JoinHandle<()>>>,
+    // maps topic to receiver and it's a subscription routine
+    pub subscriptions: Mutex<HashMap<String, HashMap<SocketAddr, tokio::task::JoinHandle<()>>>>,
 }
 
 impl Default for PubSubState {
@@ -136,32 +136,51 @@ async fn handle_message(
     match result {
         PubSubRequest::Subscribe { topics } => {
             for topic in topics {
-                let receiver = get_or_create_topic_channel(&mut state.clone(), topic.clone()).await;
-
                 tracing::info!("subscribing {} to {}", socket_address, topic);
+
+                let receiver = get_or_create_topic_channel(&mut state.clone(), topic.clone()).await;
                 let routine = tokio::spawn(subscribe(receiver, sender.clone()));
-                state
-                    .subscriptions
-                    .lock()
-                    .await
-                    .insert((socket_address, topic), routine);
+                let mut current_subscriptions = state.subscriptions.lock().await;
+                match current_subscriptions.get_mut(&topic) {
+                    Some(subscriptions) => {
+                        subscriptions.insert(socket_address, routine);
+                    }
+                    None => {
+                        let mut new_subscriptions = HashMap::new();
+                        new_subscriptions.insert(socket_address, routine);
+                        current_subscriptions.insert(topic, new_subscriptions);
+                    }
+                }
             }
         }
         PubSubRequest::Unsubscribe { topics } => {
             for topic in topics {
-                tracing::info!("unsubscribing {} from {}", socket_address, topic);
-                if let Some(routine) = state
-                    .subscriptions
-                    .lock()
-                    .await
-                    .remove(&(socket_address, topic.clone()))
-                {
-                    routine.abort();
-                }
+                let mut subscriptions = state.subscriptions.lock().await;
+                match subscriptions.get_mut(&topic) {
+                    Some(topics) => {
+                        if let Some(routine) = topics.get(&socket_address) {
+                            tracing::info!("unsubscribing {} from {}", socket_address, topic);
 
-                if state.subscriptions.lock().await.is_empty() {
-                    tracing::trace!("deleting {} since there are no more subscribers", &topic);
-                    state.topics.lock().await.remove(&topic);
+                            routine.abort();
+                            topics.remove(&socket_address);
+                        }
+
+                        if topics.is_empty() {
+                            tracing::trace!(
+                                "deleting {} since there are no more subscribers",
+                                &topic
+                            );
+                            subscriptions.remove(&topic);
+                        }
+                    }
+                    None => {
+                        tracing::trace!(
+                            "{} tried unsubscribing from {} but was not subscribed",
+                            socket_address,
+                            topic
+                        );
+                        continue;
+                    }
                 }
             }
         }
@@ -201,15 +220,15 @@ async fn get_or_create_topic_channel(
     state: &mut Arc<PubSubState>,
     topic: String,
 ) -> broadcast::Receiver<String> {
-    let mut lock = state.topics.lock().await;
+    let mut topics = state.topics.lock().await;
 
-    match lock.get(&topic) {
+    match topics.get(&topic) {
         Some(tx) => tx.subscribe(),
         None => {
             tracing::trace!("creating new topic {}", topic);
 
             let (tx, _rx) = broadcast::channel(1000);
-            lock.insert(topic, tx.clone());
+            topics.insert(topic, tx.clone());
             tx.subscribe()
         }
     }

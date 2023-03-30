@@ -1,6 +1,6 @@
 [package]
 name = "stetson"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["hexcowboy"]
 edition = "2021"
 
