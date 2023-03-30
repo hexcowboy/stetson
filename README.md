@@ -14,9 +14,6 @@
   <a href="https://crates.io/crates/stetson">
     <image src="https://img.shields.io/crates/v/stetson.svg" alt="Crates.io" />
   </a>
-  <a href="https://docs.rs/stetson/">
-    <image src="https://docs.rs/stetson/badge.svg" alt="Documentation" />
-  </a>
 </div>
 
 
