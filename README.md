@@ -22,10 +22,10 @@
 
 ## Usage
 
-Install the binary and run the server:
+Install the binary
 
 ```bash
-cargo install stetson && stetson
+cargo install stetson
 ```
 
 Run the server, making sure to set a publisher key
