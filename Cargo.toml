@@ -13,7 +13,7 @@ readme = "README.md"
 exclude = ["/.github", "/examples"]
 
 [dependencies]
-axum = { version = "0.6.19", features = ["ws"] }
+axum = { version = "0.6.20", features = ["ws"] }
 dotenvy = "0.15.7"
 futures = "0.3.28"
 serde = { version = "1.0.171", features = ["derive"] }
